@@ -6,6 +6,6 @@
   },
   "scripts": {
     "dev": "nodemon test",
-    "start": "node main"
+    "start": "node server"
   }
 }
