@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="pl">
+  <head>
+    <meta charset="UTF-8" />
+    <title>PKP Intercity - Wyszukiwarka</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background: #f6f8fa;
+        padding: 40px;
+        display: flex;
+        justify-content: center;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+      }
+      .container {
+        background: #fff;
+        padding: 30px;
+        border-radius: 16px;
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.1);
+        width: 800px;
+      }
+      h1 {
+        text-align: center;
+        margin-bottom: 30px;
+      }
+      .form-group {
+        margin-bottom: 25px;
+        position: relative;
+      }
+      label {
+        font-weight: bold;
+        display: block;
+        margin-bottom: 8px;
+      }
+      input[type="text"],
+      input[type="date"] {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        font-size: 15px;
+      }
+      button {
+        display: block;
+        width: 100%;
+        background: #0074d9;
+        color: #fff;
+        border: none;
+        padding: 14px;
+        font-size: 16px;
+        border-radius: 8px;
+        cursor: pointer;
+        margin-top: 10px;
+      }
+      button:hover {
+        background: #005fa3;
+      }
+      .suggestions {
+        max-height: 180px;
+        overflow-y: auto;
+        position: absolute;
+        background: #dfdfdf;
+        width: 100%;
+        z-index: 10;
+        border-radius: 8px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+      }
+      .suggestions div {
+        padding: 8px 10px;
+        cursor: pointer;
+      }
+      .suggestions div:hover {
+        background: #f0f0f0;
+      }
+      table {
+        border-collapse: collapse;
+        margin-top: 25px;
+        width: 100%;
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      th {
+        background: #0074d9;
+        color: white;
+        padding: 12px;
+        font-weight: bold;
+      }
+      td {
+        border: 1px solid #ddd;
+        padding: 10px;
+        text-align: center;
+      }
+      tr:nth-child(even) {
+        background: #f9f9f9;
+      }
+      .error {
+        margin-top: 20px;
+        padding: 12px;
+        background: #ffdddd;
+        border: 1px solid #ff5c5c;
+        border-radius: 8px;
+        color: #a10000;
+        text-align: center;
+        font-weight: bold;
+      }
+      .loading {
+        margin-top: 20px;
+        padding: 12px;
+        background: #eef5ff;
+        border: 1px solid #0074d9;
+        border-radius: 8px;
+        color: #004080;
+        text-align: center;
+        font-style: italic;
+      }
+
+      #peak {
+        height: 300px;
+        margin-bottom: 30px;
+      }
+    </style>
+  </head>
+  <body>
+    <img src="peak.jpg" id="peak" />
+    <div class="container">
+      <h1>🚆 Wyszukiwarka połączeń PKP Intercity</h1>
+
+      <div class="form-group">
+        <label for="startStationInput">Stacja początkowa:</label>
+        <input
+          type="text"
+          id="startStationInput"
+          autocomplete="off"
+          placeholder="Wpisz nazwę stacji..."
+        />
+        <div id="startSuggestions" class="suggestions"></div>
+        <input type="hidden" id="startStationCode" />
+      </div>
+
+      <div class="form-group">
+        <label for="stationInput">Stacja docelowa:</label>
+        <input
+          type="text"
+          id="stationInput"
+          autocomplete="off"
+          placeholder="Wpisz nazwę stacji..."
+        />
+        <div id="suggestions" class="suggestions"></div>
+        <input type="hidden" id="stationCode" />
+      </div>
+
+      <div class="form-group">
+        <label for="date">Data wyjazdu:</label>
+        <input type="date" id="date" />
+      </div>
+
+      <button id="searchBtn">🔍 Szukaj połączeń</button>
+
+      <div id="loadingBox" class="loading" style="display: none">
+        ⏳ Trwa wyszukiwanie połączeń...
+      </div>
+      <div id="errorBox" class="error" style="display: none"></div>
+
+      <table id="results" style="display: none">
+        <thead>
+          <tr>
+            <th>Wyjazd</th>
+            <th>Przyjazd</th>
+            <th>Czas jazdy (min)</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <script>
+      let stations = [];
+
+      async function loadStations() {
+        const res = await fetch("/api/stations");
+        stations = await res.json();
+      }
+
+      function setupAutocomplete(inputId, hiddenId, suggestionsId) {
+        const input = document.getElementById(inputId);
+        const hidden = document.getElementById(hiddenId);
+        const suggestionsDiv = document.getElementById(suggestionsId);
+
+        input.addEventListener("input", (e) => {
+          const query = e.target.value;
+          suggestionsDiv.innerHTML = "";
+          if (!query) return;
+
+          const filtered = stations
+            .filter((st) => st.name.toLowerCase().includes(query.toLowerCase()))
+            .slice(0, 10);
+
+          filtered.forEach((st) => {
+            const div = document.createElement("div");
+            div.textContent = st.name;
+            div.addEventListener("click", () => {
+              input.value = st.name;
+              hidden.value = st.stationCode;
+              suggestionsDiv.innerHTML = "";
+            });
+            suggestionsDiv.appendChild(div);
+          });
+        });
+      }
+
+      async function searchConnections() {
+        const startStationCode =
+          document.getElementById("startStationCode").value;
+        const stationCode = document.getElementById("stationCode").value;
+
+        const date = document.getElementById("date").value;
+        const errorBox = document.getElementById("errorBox");
+        const loadingBox = document.getElementById("loadingBox");
+        const resultsTable = document.getElementById("results");
+        const tbody = document.querySelector("#results tbody");
+
+        errorBox.style.display = "none";
+        resultsTable.style.display = "none";
+        tbody.innerHTML = "";
+
+        if (!startStationCode || !stationCode || !date) {
+          errorBox.style.display = "block";
+          errorBox.textContent =
+            "⚠️ Proszę wybrać stację początkową, docelową i datę!";
+          return;
+        }
+
+        loadingBox.style.display = "block";
+
+        try {
+          const res = await fetch("/api/connections", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              start: {
+                startStationCode,
+              },
+              end: {
+                stationCode,
+              },
+              date,
+            }),
+          });
+          const data = await res.json();
+
+          loadingBox.style.display = "none";
+
+          if (!data || data.length === 0) {
+            errorBox.style.display = "block";
+            errorBox.textContent =
+              "❌ Brak dostępnych połączeń dla wybranej trasy.";
+            return;
+          }
+
+          resultsTable.style.display = "table";
+          data.forEach((conn) => {
+            const row = document.createElement("tr");
+            row.innerHTML = `
+            <td>${new Date(conn.wyjazd).toLocaleString("pl-PL")}</td>
+            <td>${new Date(conn.przyjazd).toLocaleString("pl-PL")}</td>
+            <td>${conn.czas}</td>
+          `;
+            tbody.appendChild(row);
+          });
+        } catch (err) {
+          loadingBox.style.display = "none";
+          errorBox.style.display = "block";
+          errorBox.textContent = "⚠️ Wystąpił błąd podczas pobierania danych.";
+        }
+      }
+
+      document
+        .getElementById("searchBtn")
+        .addEventListener("click", searchConnections);
+
+      loadStations().then(() => {
+        setupAutocomplete(
+          "startStationInput",
+          "startStationCode",
+          "startSuggestions"
+        );
+        setupAutocomplete("stationInput", "stationCode", "suggestions");
+      });
+    </script>
+  </body>
+</html>
